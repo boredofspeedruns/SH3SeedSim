@@ -322,28 +322,62 @@ int main() {
         std::cout << "Enter target minute (decimal 0-59): ";
         int targetMinute; std::cin >> targetMinute;
 
-        int warm;
-        std::cout << "Warmup rand() calls after base seed (same warmup you would use in mode 4): ";
-        std::cin >> warm;
+        std::cout << "Enter base seed to measure advances from (hex, no 0x): ";
+        uint32_t base = 0;
+        std::cin >> std::hex >> base;
+        std::cin >> std::dec;
 
         char modeInput;
         std::cout << "24h path option (y/n): ";
         std::cin >> modeInput;
         uint8_t modeByte = (modeInput == 'y' || modeInput == 'Y') ? 2 : 0;
 
+        int minWarmup;
+        std::cout << "Min advances to start searching from (decimal, e.g. 0): ";
+        std::cin >> minWarmup;
+
+        int maxWarmup;
+        std::cout << "Max advances to search up to (decimal, e.g. 500000): ";
+        std::cin >> maxWarmup;
+
         int maxResults;
-        std::cout << "Max results to show (decimal, e.g. 50): ";
+        std::cout << "Max matches to show (decimal, e.g. 20): ";
         std::cin >> maxResults;
 
-        auto seeds = find_clock_base_seeds(targetHour, targetMinute, modeByte, warm, maxResults);
-        if (seeds.empty()) {
-            std::cout << "\nNo seeds found for that HH:MM under these settings.\n";
-        } else {
-            std::cout << "\nPossible base seeds (before warmups):\n";
-            for (size_t i = 0; i < seeds.size(); ++i) {
-                std::cout << "  [" << i << "] 0x" << std::hex << std::uppercase << seeds[i] << std::dec << "\n";
-            }
+        auto matches = find_clock_warmups(base, modeByte, targetHour, targetMinute,
+                                          minWarmup, maxWarmup, maxResults);
+
+        if (matches.empty()) {
+            std::cout << "\nNo advances in [" << minWarmup << ".." << maxWarmup << "] produced "
+                      << targetHour << ":" << (targetMinute < 10 ? "0" : "") << targetMinute << ".\n";
+            return 0;
         }
+
+        std::cout << "\nMatches for "
+                  << targetHour << ":" << (targetMinute < 10 ? "0" : "") << targetMinute
+                  << " from base seed 0x" << std::hex << std::uppercase << base << std::dec
+                  << " (each advance = 1 rand step):\n";
+
+        for (size_t i = 0; i < matches.size(); ++i) {
+            const auto &m = matches[i];
+            std::cout << "  [" << i << "] advances=" << m.warmup
+                      << "  seed@advance=0x" << std::hex << std::uppercase << m.seedAfterWarmup << std::dec
+                      << "  rHour=0x" << std::hex << std::uppercase << m.rHour << std::dec
+                      << "  rMin=0x" << std::hex << std::uppercase << m.rMin << std::dec
+                      << "  packed=0x" << std::hex << std::uppercase << m.packed << std::dec
+                      << "\n";
+        }
+
+        // Show the earliest match (smallest advances) as the "best" match.
+        const auto &best = matches.front();
+        std::cout << "\nEarliest match: advances=" << best.warmup
+                  << "  seed@advance=0x" << std::hex << std::uppercase << best.seedAfterWarmup << std::dec << "\n";
+
+        // Optional sanity check: generate the clock time starting from that seed@advance with 0 additional warmup.
+        uint32_t packed = gen_clock_puzzle(best.seedAfterWarmup, /*warmupAfterReset=*/0, modeByte, false);
+        std::cout << "Sanity-check packed=0x" << std::hex << std::uppercase << packed << std::dec << "\n";
+        print_clock(packed);
+
         return 0;
 
     } else if (mode == 6) {
